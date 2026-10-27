@@ -428,4 +428,88 @@ function docsFromS(){
   Object.keys(S.pay).forEach(function(k){var i=k.lastIndexOf(":"),m=k.slice(i+1);(pm[m]=pm[m]||[]).push(k.slice(0,i))});
   Object.keys(pm).forEach(function(m){d["pay/"+m]={ids:pm[m]}});
   S.exams.forEach(function(x){d["exams/"+x.id]=JSON.parse(JSON.stringify(x))});
-  S.exp.forEach(function(x){d["exp/"+x.id]=JSON.pa
+  S.exp.forEach(function(x){d["exp/"+x.id]=JSON.parse(JSON.stringify(x))});
+  S.pays.forEach(function(x){d["pays/"+x.id]=JSON.parse(JSON.stringify(x))});
+  if(FBMODE)S.students.forEach(function(s){if(s.tok)d["portal/"+s.tok]=JSON.parse(JSON.stringify(portalOf(s)))});
+  return d;
+}
+function failDb(e){
+  console.error("db",e);
+  if(e&&e.code==="permission-denied"){setStatus("صلاحية غير كافية لهذه العملية","off")}
+  else{setStatus("خطأ في الاتصال","off")}
+}
+function syncDb(){
+  if(!DB||!canW)return;
+  var cur=docsFromS(),p;
+  for(p in cur){if(!canPath(p))continue;var j=cj(cur[p]);if(shadow[p]!==j){shadow[p]=j;DB.doc(p).set(cur[p]).catch(failDb)}}
+  for(p in shadow){if(!(p in cur)&&canPath(p)){delete shadow[p];DB.doc(p).delete().catch(failDb)}}
+}
+function canPath(p){return ROLE==="admin"||!/^(cfg|exp|pays)\//.test(p)}
+function clearShadow(pre){for(var k in shadow){if(k.indexOf(pre)===0)delete shadow[k]}}
+function applyAll(){
+  var w=lock-Date.now();if(w>0){clearTimeout(lt);lt=setTimeout(applyAll,w+60);return}
+  var ss=lastSnap.students,aa=lastSnap.att,pp=lastSnap.pay,cc=lastSnap.cfg,xx=lastSnap.exams,ee=lastSnap.exp,py=lastSnap.pays;lastSnap={};
+  if(!ss&&!aa&&!pp&&!cc&&!xx&&!ee&&!py)return;
+  if(xx){clearShadow("exams/");S.exams=xx.docs.map(function(d){var o=d.data();shadow["exams/"+d.id]=cj(o);return o})}
+  if(ee){clearShadow("exp/");S.exp=ee.docs.map(function(d){var o=d.data();shadow["exp/"+d.id]=cj(o);return o})}
+  if(py){clearShadow("pays/");S.pays=py.docs.map(function(d){var o=d.data();shadow["pays/"+d.id]=cj(o);return o})}
+  if(ss){clearShadow("students/");S.students=ss.docs.map(function(d){var o=d.data();shadow["students/"+d.id]=cj(o);return o}).sort(function(a,b){return String(a.code).localeCompare(String(b.code))})}
+  if(aa){clearShadow("att/");S.att={};S.tm={};aa.docs.forEach(function(d){var o=d.data();shadow["att/"+d.id]=cj(o);S.att[d.id]=(o.ids||[]).slice();Object.keys(o.tm||{}).forEach(function(k){S.tm[k+":"+d.id]=o.tm[k]})})}
+  if(pp){clearShadow("pay/");S.pay={};pp.docs.forEach(function(d){var o=d.data();shadow["pay/"+d.id]=cj(o);(o.ids||[]).forEach(function(id){S.pay[id+":"+d.id]=true})})}
+  if(cc&&cc.exists){var o=cc.data();shadow["cfg/main"]=cj(o);S.cfg={per:o.per||12,days:o.days&&o.days.length?o.days:[0,2,4]};S.seq=Math.max(S.seq||0,o.seq||0)}
+  normS();ensureTok();saveLocal();softRender();
+}
+function softRender(){
+  if(tab==="att")refreshAtt();
+  else if(tab==="stu"){var l=document.getElementById("list");if(l)l.innerHTML=listHTML()}
+  else if(tab==="dash"||tab==="pay")render();
+}
+function applyRole(){
+  document.body.dataset.role=ROLE;
+  if(!TABS.some(function(t){return t[0]===tab&&(ROLE==="admin"||ADM.indexOf(t[0])<0)}))tab="dash";
+  render();
+}
+function showLogin(){
+  if(document.getElementById("login"))return;
+  var d=document.createElement("div");d.id="login";d.className="dov";d.style.cssText="z-index:200;background:var(--bg)";
+  d.innerHTML='<div class="dbox" style="width:min(400px,100%)"><div style="text-align:center;margin-bottom:12px"><img src="'+document.querySelector(".logo").src+'" alt="" style="height:90px;mix-blend-mode:multiply"></div><p style="text-align:center;font-size:18px">تسجيل الدخول</p><form id="f-login" style="display:grid;gap:10px"><label>البريد الإلكتروني<input type="email" id="lem" required autocomplete="username" dir="ltr"></label><label>كلمة المرور<input type="password" id="lpw" required autocomplete="current-password" dir="ltr"></label><div id="lerr" style="color:var(--red);font-size:13px;min-height:18px"></div><button class="btn" type="submit">دخول</button><button class="btn ghost" type="button" id="lrs" style="padding:8px">نسيت كلمة المرور</button></form><div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><label>دخول اللاعب: الصق رابطك الخاص<input id="lpl" dir="ltr" placeholder="https://..."></label><button class="btn sec" type="button" id="lpg" style="margin-top:8px;width:100%">عرض بياناتي</button></div></div>';
+  document.body.appendChild(d);
+  var err=function(t){document.getElementById("lerr").textContent=t};
+  document.getElementById("f-login").onsubmit=function(e){
+    e.preventDefault();err("");
+    firebase.auth().signInWithEmailAndPassword(document.getElementById("lem").value.trim(),document.getElementById("lpw").value).catch(function(x){err("البريد أو كلمة المرور غير صحيحة")});
+  };
+  document.getElementById("lrs").onclick=function(){
+    var em=document.getElementById("lem").value.trim();if(!em){err("اكتب بريدك أولاً");return}
+    firebase.auth().sendPasswordResetEmail(em).then(function(){err("تم إرسال رابط استعادة كلمة المرور إلى بريدك")}).catch(function(){err("تعذر الإرسال، تأكد من البريد")});
+  };
+  document.getElementById("lpg").onclick=function(){var m=/([a-f0-9]{32})/.exec(document.getElementById("lpl").value);if(!m){err("الرابط غير صحيح");return}location.href=location.pathname+"?p="+m[1]};
+}
+function hideLogin(){var d=document.getElementById("login");if(d)d.remove()}
+function startFb(u){
+  DB=firebase.firestore();
+  ROLE=(u.email||"").toLowerCase()===String(ADMIN_EMAIL).toLowerCase()?"admin":"coach";canW=true;
+  var cols=["students","att","pay","exams"];if(ROLE==="admin")cols=cols.concat(["exp","pays"]);
+  cols.forEach(function(c){DB.collection(c).onSnapshot(function(s){lastSnap[c]=s;applyAll()},failDb)});
+  DB.doc("cfg/main").onSnapshot(function(s){lastSnap.cfg=s;applyAll()},failDb);
+  DB.collection("portal").onSnapshot(function(s){s.docs.forEach(function(d){shadow["portal/"+d.id]=cj(d.data())})},failDb);
+  setStatus("متصل ("+(ROLE==="admin"?"مدير":"مدرب")+"): "+(u.email||""),"on");
+  var o=document.getElementById("out");if(o)o.style.display="inline-block";
+  applyRole();
+}
+function connect(){
+  if(!FBMODE){setStatus("محلي (لم يتم ربط Firebase بعد)","off");return}
+  try{firebase.initializeApp(FB)}catch(e){}
+  showLogin();
+  var started=false;
+  firebase.auth().onAuthStateChanged(function(u){
+    if(u){hideLogin();if(!started){started=true;startFb(u)}}
+    else{showLogin()}
+  });
+}
+window.addEventListener("afterprint",function(){document.body.classList.remove("pc")});
+if(PT||PTBAD){portalMode()}else{load();render();connect()}
+</script>
+</body>
+</html>
+
